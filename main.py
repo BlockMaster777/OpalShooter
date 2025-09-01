@@ -17,25 +17,50 @@ pg.display.init()
 clock = pg.time.Clock()
 
 pg.display.set_caption('OpalShooter')
-screen = pg.display.set_mode((1920, 1080), pg.FULLSCREEN)
+screen = pg.display.set_mode((WIDTH, HEIGHT), pg.FULLSCREEN)
 
 player_img = pg.transform.scale_by(pg.image.load('resources/images/player.png').convert_alpha(), 4)
+enemy_img = pg.transform.scale_by(pg.image.load('resources/images/enemy.png').convert_alpha(), 4)
 
 dt = clock.tick(FPS) / 1000
 
+objects = []
 
-class Player(pg.sprite.Sprite):
+def limit_number(num, minimum, maximum):
+    return max(minimum, min(num, maximum))
+
+
+def draw_objects():
+    for obj in objects:
+        obj.draw()
+
+
+class Object(pg.sprite.Sprite):
     def __init__(self, x, y, image):
         pg.sprite.Sprite.__init__(self)
         self.x = x
         self.y = y
-        self.speed = 200
         self.image = image
         self.rect = self.image.get_rect(topleft=(self.x, self.y))
+        objects.append(self)
     
     
     def update_rect(self):
         self.rect = self.image.get_rect(topleft=(self.x, self.y))
+    
+    
+    def update(self):
+        self.update_rect()
+    
+    
+    def draw(self):
+        screen.blit(self.image, (self.x - camera_x, self.y - camera_y))
+
+
+class Player(Object):
+    def __init__(self, x, y, image, speed):
+        super().__init__(x, y, image)
+        self.speed = speed
     
     
     def update(self):
@@ -64,15 +89,21 @@ class Player(pg.sprite.Sprite):
                 self.x += speed
         
         self.x, self.y = round(self.x), round(self.y)
+        self.x, self.y = (limit_number(self.x, 0, WORLD_SIZE[0] - self.rect.w), limit_number(self.y, 0, WORLD_SIZE[1] - self.rect.h))
         
-        self.update_rect()
-    
-    
-    def draw(self):
-        screen.blit(self.image, self.rect)
+        super().update()
 
 
-player = Player(100, 100, player_img)
+player = Player(0, 0, player_img, PLAYER_SPEED)
+player.x = WORLD_SIZE[0] // 2 - player.rect.w // 2
+player.y = WORLD_SIZE[1] // 2 - player.rect.h // 2
+player.update_rect()
+
+for x in range(0, WORLD_SIZE[0] - 64, 500):
+    for y in range(0, WORLD_SIZE[1] - 64, 500):
+        Object(x, y, enemy_img)
+
+camera_x, camera_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
 
 escape_pressed = False
 
@@ -91,7 +122,7 @@ while True:
     
     if keys[pg.K_ESCAPE]:
         if not escape_pressed:
-            pg.time.set_timer(pg.USEREVENT + EXIT_EVENT, 2000, loops=1)
+            pg.time.set_timer(pg.USEREVENT + EXIT_EVENT, EXIT_HOLD_TIME, loops=1)
             escape_pressed = True
     else:
         if escape_pressed:
@@ -101,7 +132,13 @@ while True:
     screen.fill("green")
     
     player.update()
-    player.draw()
     
-    screen.blit(screen, (0, 0))
+    camera_target_x, camera_target_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
+    camera_x += (camera_target_x - camera_x) * CAMERA_SMOOTHING
+    camera_y += (camera_target_y - camera_y) * CAMERA_SMOOTHING
+    
+    camera_x, camera_y = (limit_number(camera_x, 0, WORLD_SIZE[0] - WIDTH), limit_number(camera_y, 0, WORLD_SIZE[1] - HEIGHT))
+    
+    draw_objects()
+    
     pg.display.update()
