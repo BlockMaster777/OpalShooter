@@ -8,28 +8,38 @@ Made by BlockMaster777 and Marinich Timyr
 """
 
 import math
+import random
+from typing import Tuple
+
 import pygame as pg
 from config import *
 
 pg.init()
 pg.mixer.init()
 pg.display.init()
+pg.font.init()
 
 clock = pg.time.Clock()
 
 pg.display.set_caption('OpalShooter')
 screen = pg.display.set_mode((WIDTH, HEIGHT), pg.FULLSCREEN)
 
+bg_img = pg.transform.scale_by(pg.image.load('resources/images/bg.png').convert(), 4)
 player_img = pg.transform.scale_by(pg.image.load('resources/images/player.png').convert_alpha(), 4)
 enemy_img = pg.transform.scale_by(pg.image.load('resources/images/enemy.png').convert_alpha(), 4)
-bullet_img = pg.transform.scale_by(pg.image.load('resources/images/bullet.png').convert_alpha(), 2)
+bullet_img = pg.transform.scale_by(pg.image.load('resources/images/bullet.png').convert_alpha(), 4)
+wall_img = pg.transform.scale_by(pg.image.load('resources/images/wall.png').convert_alpha(), 4)
 
 walk_sound = pg.mixer.Sound('resources/sounds/walk.mp3')
+
+font40 = pg.font.Font("resources/pixel_font.ttf", 40)
 
 dt = clock.tick(FPS) / 1000
 
 objects = []
 upd_objects = []
+buttons = pg.sprite.Group()
+
 
 def limit_number(num, minimum, maximum):
     return max(minimum, min(num, maximum))
@@ -43,13 +53,52 @@ def rad_to_ang(rad) -> float:
     return (180 / math.pi) * -rad
 
 
-def draw_objects():
-    for obj in objects:
-        obj.draw()
+class Button(pg.sprite.Sprite):
+    def __init__(self, font_: pg.font.Font, size: Tuple, pos: Tuple, text, text_color, button_color, action_on_click, action_params=()):
+        pg.sprite.Sprite.__init__(self)
+        self.font = font_
+        self.size = size
+        self.pos = pos
+        self.text = text
+        self.text_color = text_color
+        self.button_color = button_color
+        self.image = pg.Surface(self.size)
+        self.image.fill(self.button_color)
+        self.text_render = self.font.render(self.text, True, self.text_color)
+        self.text_rect = self.text_render.get_rect(center=(self.image.get_width() / 2, self.image.get_height() / 2))
+        self.image.blit(self.text_render, self.text_rect)
+        self.rect = self.image.get_rect(topleft=self.pos)
+        self.action_on_click = action_on_click
+        self.action_params = action_params
+        self.add(buttons)
+    
+    
+    def handle_event(self, e):
+        if e.type == pg.MOUSEBUTTONDOWN and self.rect.collidepoint(e.pos):
+            if self.action_params == ():
+                self.action_on_click()
+            else:
+                self.action_on_click(self.action_params)
 
-def update_objects():
-    for obj in upd_objects:
-        obj.update()
+
+class IMGButton(pg.sprite.Sprite):
+    def __init__(self, size, pos, img, action_on_click, action_params=()):
+        pg.sprite.Sprite.__init__(self)
+        self.size = size
+        self.pos = pos
+        self.image = img
+        self.rect = self.image.get_rect(topleft=self.pos)
+        self.action_on_click = action_on_click
+        self.action_params = action_params
+        self.add(buttons)
+    
+    
+    def handle_event(self, e):
+        if e.type == pg.MOUSEBUTTONDOWN and self.rect.collidepoint(e.pos):
+            if self.action_params == ():
+                self.action_on_click()
+            else:
+                self.action_on_click(self.action_params)
 
 
 class Object(pg.sprite.Sprite):
@@ -71,7 +120,11 @@ class Object(pg.sprite.Sprite):
     
     
     def draw(self):
-        screen.blit(self.image, (self.x - camera_x, self.y - camera_y))
+        if (camera_x <= self.x <= camera_x + WIDTH and camera_y <= self.y <= camera_y + HEIGHT or
+            camera_x <= self.rect.right <= camera_x + WIDTH and camera_y <= self.y <= camera_y + HEIGHT or
+            camera_x <= self.x <= camera_x + WIDTH and camera_y <= self.rect.bottom <= camera_y + HEIGHT or
+            camera_x <= self.rect.right <= camera_x + WIDTH and camera_y <= self.rect.bottom <= camera_y + HEIGHT):
+            screen.blit(self.image, (self.x - camera_x, self.y - camera_y))
 
 
 class Bullet(Object):
@@ -96,7 +149,6 @@ class Bullet(Object):
         self.y += math.sin(self.angle) * speed
         self.image = pg.transform.rotate(self.raw_image, rad_to_ang(self.angle))
         super().update()
-
 
 
 class Player(Object):
@@ -141,6 +193,33 @@ class Player(Object):
                 self.is_walking = False
         
         super().update()
+    
+    
+    def draw(self):
+        pass
+    
+    
+    def player_draw(self):
+        screen.blit(self.image, (self.x - camera_x, self.y - camera_y))
+
+
+for x in range(0, WORLD_SIZE[0], 680):
+    for y in range(0, WORLD_SIZE[1], 680):
+        Object(x, y, bg_img)
+
+for x in range(0, WORLD_SIZE[0], 680):
+    for y in range(0, WORLD_SIZE[1], 680):
+        Object(x, y, wall_img)
+
+
+def draw_objects():
+    for obj in objects:
+        obj.draw()
+
+
+def update_objects():
+    for obj in upd_objects:
+        obj.update()
 
 
 player = Player(0, 0, player_img, PLAYER_SPEED)
@@ -148,64 +227,69 @@ player.x = WORLD_SIZE[0] // 2 - player.rect.w // 2
 player.y = WORLD_SIZE[1] // 2 - player.rect.h // 2
 player.update_rect()
 
-for x in range(0, WORLD_SIZE[0] - 64, 500):
-    for y in range(0, WORLD_SIZE[1] - 64, 500):
-        Object(x, y, enemy_img)
+running = True
 
-camera_x, camera_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
+
+def exit_game():
+    global running
+    running = False
+
+
+Button(font40, (150, 50), (1770, 0), "Exit", "Black", "#B0305C", exit_game)
+
+shoot_delay = 0
+shoot_timer = 0
 
 
 def shoot():
     mouse_pos_realitive = pg.mouse.get_pos()
     mouse_pos_absolute = mouse_pos_realitive[0] + camera_x, mouse_pos_realitive[1] + camera_y
-    shoot_angle = angle_to(player.rect.centerx, player.rect.centery, mouse_pos_absolute[0], mouse_pos_absolute[1])
-    Bullet(player.rect.centerx, player.rect.centery, bullet_img, shoot_angle, 1000, 3, 2000)
+    shoot_angle = angle_to(player.rect.centerx, player.rect.centery, mouse_pos_absolute[0], mouse_pos_absolute[1]) + (random.random() - 0.5) / 10
+    Bullet(player.rect.centerx - 10, player.rect.centery - 10, bullet_img, shoot_angle, 1000, 3, 2000)
 
 
-escape_pressed = False
+camera_x, camera_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
+
 is_mouse_down = False
 
-while True:
+while running:
     dt = clock.tick(FPS) / 1000
     
     keys = pg.key.get_pressed()
     
     for event in pg.event.get():
         if event.type == pg.QUIT:
-            pg.quit()
-            break
-        if event.type == pg.USEREVENT + EXIT_EVENT:
-            pg.quit()
-            break
-        if event.type == pg.USEREVENT + SHOOT_EVENT:
-            shoot()
+            running = False
         if event.type == pg.MOUSEBUTTONDOWN and not is_mouse_down:
             is_mouse_down = True
-            pg.time.set_timer(pg.USEREVENT + SHOOT_EVENT, 1000)
         if event.type == pg.MOUSEBUTTONUP:
             is_mouse_down = False
-            pg.time.set_timer(pg.USEREVENT + SHOOT_EVENT, 0)
-    
-    if keys[pg.K_ESCAPE]:
-        if not escape_pressed:
-            pg.time.set_timer(pg.USEREVENT + EXIT_EVENT, EXIT_HOLD_TIME, loops=1)
-            escape_pressed = True
-    else:
-        if escape_pressed:
-            pg.time.set_timer(pg.USEREVENT + EXIT_EVENT, 0)
-            escape_pressed = False
+        for button in buttons:
+            button.handle_event(event)
     
     screen.fill("green")
     
     player.update()
     
+    if is_mouse_down:
+        if shoot_timer <= 0:
+            shoot_timer = shoot_delay
+            shoot()
+        else:
+            shoot_timer -= dt
+    else:
+        shoot_timer -= dt
+    
     camera_target_x, camera_target_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
     camera_x += (camera_target_x - camera_x) * CAMERA_SMOOTHING
     camera_y += (camera_target_y - camera_y) * CAMERA_SMOOTHING
-    
     camera_x, camera_y = (limit_number(camera_x, 0, WORLD_SIZE[0] - WIDTH), limit_number(camera_y, 0, WORLD_SIZE[1] - HEIGHT))
     
     update_objects()
     draw_objects()
+    player.player_draw()
+    buttons.draw(screen)
     
     pg.display.update()
+
+pg.quit()
