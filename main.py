@@ -102,11 +102,12 @@ class IMGButton(pg.sprite.Sprite):
 
 
 class Object(pg.sprite.Sprite):
-    def __init__(self, x, y, image):
+    def __init__(self, x, y, image, collision=True):
         pg.sprite.Sprite.__init__(self)
         self.x = x
         self.y = y
         self.image = image
+        self.collision = collision
         self.rect = self.image.get_rect(topleft=(self.x, self.y))
         objects.append(self)
     
@@ -149,7 +150,18 @@ class Bullet(Object):
         self.y += math.sin(self.angle) * speed
         self.image = pg.transform.rotate(self.raw_image, rad_to_ang(self.angle))
         super().update()
-
+        for obj in objects:
+            if obj.collision and self.rect.colliderect(obj.rect) and obj != self and type(obj) != Player:
+                self.collide()
+    
+    
+    def collide(self):
+        try:
+            upd_objects.remove(self)
+            objects.remove(self)
+            self.kill()
+        except:
+            pass
 
 class Player(Object):
     def __init__(self, x, y, image, speed):
@@ -178,7 +190,36 @@ class Player(Object):
             y_speed //= 2
         
         self.x += x_speed
+        self.update_rect()
+        
+        for obj in objects:
+            if self.rect.colliderect(obj.rect):
+                if obj.collision and obj != self and type(obj) != Bullet:
+                    if x_speed > 0:
+                        self.x = obj.rect.left - self.rect.width
+                    elif x_speed < 0:
+                        self.x = obj.rect.right
+                    self.update_rect()
+                    x_speed = 0
+                    break
+        
         self.y += y_speed
+        self.update_rect()
+        
+        for obj in objects:
+            if self.rect.colliderect(obj.rect):
+                if obj.collision and obj != self and type(obj) != Bullet:
+                    if y_speed > 0:
+                        self.y = obj.rect.top - self.rect.height
+                    elif y_speed < 0:
+                        self.y = obj.rect.bottom
+                    self.update_rect()
+                    y_speed = 0
+                    break
+        
+        self.x = round(self.x)
+        self.y = round(self.y)
+        
         self.x, self.y = (limit_number(self.x, 0, WORLD_SIZE[0] - self.rect.w), limit_number(self.y, 0, WORLD_SIZE[1] - self.rect.h))
         
         is_moving = (x_speed != 0) or (y_speed != 0)
@@ -205,7 +246,7 @@ class Player(Object):
 
 for x in range(0, WORLD_SIZE[0], 680):
     for y in range(0, WORLD_SIZE[1], 680):
-        Object(x, y, bg_img)
+        Object(x, y, bg_img, collision=False)
 
 for x in range(0, WORLD_SIZE[0], 680):
     for y in range(0, WORLD_SIZE[1], 680):
@@ -227,6 +268,11 @@ player.x = WORLD_SIZE[0] // 2 - player.rect.w // 2
 player.y = WORLD_SIZE[1] // 2 - player.rect.h // 2
 player.update_rect()
 
+max_stamina = 5
+stamina = 5
+is_min_stamina_reached = False
+real_speed = PLAYER_SPEED
+
 running = True
 
 
@@ -237,7 +283,7 @@ def exit_game():
 
 Button(font40, (150, 50), (1770, 0), "Exit", "Black", "#B0305C", exit_game)
 
-shoot_delay = 0
+shoot_delay = 1
 shoot_timer = 0
 
 
@@ -245,7 +291,7 @@ def shoot():
     mouse_pos_realitive = pg.mouse.get_pos()
     mouse_pos_absolute = mouse_pos_realitive[0] + camera_x, mouse_pos_realitive[1] + camera_y
     shoot_angle = angle_to(player.rect.centerx, player.rect.centery, mouse_pos_absolute[0], mouse_pos_absolute[1]) + (random.random() - 0.5) / 10
-    Bullet(player.rect.centerx - 10, player.rect.centery - 10, bullet_img, shoot_angle, 1000, 3, 2000)
+    Bullet(player.rect.centerx - 10, player.rect.centery - 10, bullet_img, shoot_angle, BULLET_SPEED, 3, 2000)
 
 
 camera_x, camera_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
@@ -279,6 +325,27 @@ while running:
             shoot_timer -= dt
     else:
         shoot_timer -= dt
+    
+    
+    if keys[pg.K_LSHIFT]:
+        if stamina > 0 and not is_min_stamina_reached:
+            player.speed = RUN_SPEED
+            stamina -= dt
+        elif stamina <= 0:
+            is_min_stamina_reached = True
+            player.speed = PLAYER_SPEED
+            if stamina < max_stamina:
+                stamina += dt
+        elif stamina >= max_stamina:
+            is_min_stamina_reached = False
+        else:
+            player.speed = PLAYER_SPEED
+            if stamina < max_stamina:
+                stamina += dt
+    else:
+        player.speed = PLAYER_SPEED
+        if stamina < max_stamina:
+            stamina += dt
     
     camera_target_x, camera_target_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
     camera_x += (camera_target_x - camera_x) * CAMERA_SMOOTHING
