@@ -31,13 +31,14 @@ bullet_img = pg.transform.scale_by(pg.image.load('resources/images/bullet.png').
 wall_img = pg.transform.scale_by(pg.image.load('resources/images/wall.png').convert_alpha(), 4)
 
 walk_sound = pg.mixer.Sound('resources/sounds/walk.mp3')
+pistol_shoot_sound = pg.mixer.Sound('resources/sounds/pistol_shoot.mp3')
 
 font40 = pg.font.Font("resources/pixel_font.ttf", 40)
+font20 = pg.font.Font("resources/pixel_font.ttf", 20)
 
 dt = clock.tick(FPS) / 1000
 
 objects = []
-upd_objects = []
 buttons = pg.sprite.Group()
 
 
@@ -51,6 +52,12 @@ def angle_to(sx, sy, px, py) -> float:
 
 def rad_to_ang(rad) -> float:
     return (180 / math.pi) * -rad
+
+
+def shoot(angle, start: Tuple[int, int]):
+    angle += (random.random() - 0.5) / 10
+    Bullet(start[0], start[1], bullet_img, angle, BULLET_SPEED, 3, 2000)
+    pistol_shoot_sound.play()
 
 
 class Button(pg.sprite.Sprite):
@@ -102,11 +109,12 @@ class IMGButton(pg.sprite.Sprite):
 
 
 class Object(pg.sprite.Sprite):
-    def __init__(self, x, y, image, collision=True):
+    def __init__(self, x, y, image, updating, collision=True):
         pg.sprite.Sprite.__init__(self)
         self.x = x
         self.y = y
         self.image = image
+        self.updating = updating
         self.collision = collision
         self.rect = self.image.get_rect(topleft=(self.x, self.y))
         objects.append(self)
@@ -120,6 +128,11 @@ class Object(pg.sprite.Sprite):
         self.update_rect()
     
     
+    def kill(self):
+        objects.remove(self)
+        del self
+    
+    
     def draw(self):
         if (camera_x <= self.x <= camera_x + WIDTH and camera_y <= self.y <= camera_y + HEIGHT or
             camera_x <= self.rect.right <= camera_x + WIDTH and camera_y <= self.y <= camera_y + HEIGHT or
@@ -130,21 +143,18 @@ class Object(pg.sprite.Sprite):
 
 class Bullet(Object):
     def __init__(self, x, y, image, angle, speed, damage, distance):
-        super().__init__(x, y, image)
+        super().__init__(x, y, image, True)
         self.angle = angle
         self.speed = speed
         self.damage = damage
         self.distance = distance
         self.raw_image = self.image
-        upd_objects.append(self)
     
     
     def update(self):
         speed = self.speed * dt
         self.distance -= speed
         if self.distance <= 0:
-            upd_objects.remove(self)
-            objects.remove(self)
             self.kill()
         self.x += math.cos(self.angle) * speed
         self.y += math.sin(self.angle) * speed
@@ -152,30 +162,72 @@ class Bullet(Object):
         super().update()
         for obj in objects:
             if obj.collision and self.rect.colliderect(obj.rect) and obj != self and type(obj) != Player:
-                self.collide()
+                self.collide(obj)
     
     
-    def collide(self):
+    def collide(self, obj):
         try:
-            upd_objects.remove(self)
-            objects.remove(self)
+            obj.hit(self.damage)
+        except:
+            pass
+        try:
             self.kill()
         except:
             pass
 
 class Player(Object):
-    def __init__(self, x, y, image, speed):
-        super().__init__(x, y, image)
-        self.speed = speed
+    def __init__(self, x, y, image, walk_speed, run_speed, max_stamina):
+        super().__init__(x, y, image, True)
+        self.walk_speed = walk_speed
+        self.run_speed = run_speed
+        self.speed = self.walk_speed
         self.is_walking = False
+        self.weapon_type = "pistol"
+        self.weapon_stats = {"pistol": {"shoot_delay": 1, "round_size": 14, "reload_time": 3}}
+        self.shoot_timer = 0
+        self.max_stamina = max_stamina
+        self.stamina = self.max_stamina
+        self.is_min_stamina_reached = False
     
     
     def update(self):
+        keys = pg.key.get_pressed()
+        if is_mouse_down:
+            if self.shoot_timer <= 0:
+                self.shoot_timer = self.weapon_stats[self.weapon_type]["shoot_delay"]
+                mouse_x, mouse_y = pg.mouse.get_pos()
+                absolute_x, absolute_y = mouse_x + camera_x, mouse_y + camera_y
+                angle = angle_to(self.rect.centerx - 10, self.rect.centery - 10, absolute_x, absolute_y)
+                shoot(angle, (self.rect.centerx - 10, self.rect.centery - 10))
+            else:
+                self.shoot_timer -= dt
+        else:
+            self.shoot_timer -= dt
+        
+        if keys[pg.K_LSHIFT]:
+            if self.stamina > 0 and not self.is_min_stamina_reached:
+                self.speed = self.run_speed
+                self.stamina -= dt
+            elif self.stamina <= 0:
+                self.is_min_stamina_reached = True
+                self.speed = self.walk_speed
+                if self.stamina < self.max_stamina:
+                    self.stamina += dt
+            elif self.stamina >= self.max_stamina:
+                self.is_min_stamina_reached = False
+            else:
+                self.speed = self.walk_speed
+                if self.stamina < self.max_stamina:
+                    self.stamina += dt
+        else:
+            self.speed = self.walk_speed
+            if self.stamina < self.max_stamina:
+                self.stamina += dt
+        
         movement_speed = self.speed * dt
         x_speed = 0
         y_speed = 0
         
-        keys = pg.key.get_pressed()
         if keys[pg.K_w]:
             y_speed = -movement_speed
             x_speed //= 2
@@ -244,13 +296,70 @@ class Player(Object):
         screen.blit(self.image, (self.x - camera_x, self.y - camera_y))
 
 
-for x in range(0, WORLD_SIZE[0], 680):
-    for y in range(0, WORLD_SIZE[1], 680):
-        Object(x, y, bg_img, collision=False)
+class Enemy(Object):
+    def __init__(self, x, y, image, speed, health):
+        super().__init__(x, y, image, True)
+        self.speed = speed
+        self.health = health
+    
+    
+    def update(self):
+        movement_speed = self.speed * dt
+        angle = angle_to(self.rect.centerx, self.rect.centery, player.rect.centerx, player.rect.centery)
+        x_speed = math.cos(angle) * movement_speed
+        y_speed = math.sin(angle) * movement_speed
+        
+        self.x += x_speed
+        self.update_rect()
+        
+        for obj in objects:
+            if self.rect.colliderect(obj.rect):
+                if obj.collision and obj != self:
+                    if x_speed > 0:
+                        self.x = obj.rect.left - self.rect.width
+                    elif x_speed < 0:
+                        self.x = obj.rect.right
+                    self.update_rect()
+                    break
+        
+        self.y += y_speed
+        self.update_rect()
+        
+        for obj in objects:
+            if self.rect.colliderect(obj.rect):
+                if obj.collision and obj != self:
+                    if y_speed > 0:
+                        self.y = obj.rect.top - self.rect.height
+                    elif y_speed < 0:
+                        self.y = obj.rect.bottom
+                    self.update_rect()
+                    break
+        
+        self.x = round(self.x)
+        self.y = round(self.y)
+        
+        self.x, self.y = (limit_number(self.x, 0, WORLD_SIZE[0] - self.rect.w), limit_number(self.y, 0, WORLD_SIZE[1] - self.rect.h))
+        
+        super().update()
+    
+    
+    def hit(self, damage):
+        self.health -= damage
+        if self.health <= 0:
+            try:
+                self.kill()
+            except:
+                pass
+
+
 
 for x in range(0, WORLD_SIZE[0], 680):
     for y in range(0, WORLD_SIZE[1], 680):
-        Object(x, y, wall_img)
+        Object(x, y, bg_img, False, collision=False)
+
+for x in range(0, WORLD_SIZE[0], 680):
+    for y in range(0, WORLD_SIZE[1], 680):
+        Enemy(x, y, enemy_img, 100, 3)
 
 
 def draw_objects():
@@ -259,19 +368,15 @@ def draw_objects():
 
 
 def update_objects():
-    for obj in upd_objects:
-        obj.update()
+    for obj in objects:
+        if obj.updating:
+            obj.update()
 
 
-player = Player(0, 0, player_img, PLAYER_SPEED)
+player = Player(0, 0, player_img, PLAYER_SPEED, RUN_SPEED, 5)
 player.x = WORLD_SIZE[0] // 2 - player.rect.w // 2
 player.y = WORLD_SIZE[1] // 2 - player.rect.h // 2
 player.update_rect()
-
-max_stamina = 5
-stamina = 5
-is_min_stamina_reached = False
-real_speed = PLAYER_SPEED
 
 running = True
 
@@ -282,17 +387,6 @@ def exit_game():
 
 
 Button(font40, (150, 50), (1770, 0), "Exit", "Black", "#B0305C", exit_game)
-
-shoot_delay = 1
-shoot_timer = 0
-
-
-def shoot():
-    mouse_pos_realitive = pg.mouse.get_pos()
-    mouse_pos_absolute = mouse_pos_realitive[0] + camera_x, mouse_pos_realitive[1] + camera_y
-    shoot_angle = angle_to(player.rect.centerx, player.rect.centery, mouse_pos_absolute[0], mouse_pos_absolute[1]) + (random.random() - 0.5) / 10
-    Bullet(player.rect.centerx - 10, player.rect.centery - 10, bullet_img, shoot_angle, BULLET_SPEED, 3, 2000)
-
 
 camera_x, camera_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
 
@@ -317,36 +411,6 @@ while running:
     
     player.update()
     
-    if is_mouse_down:
-        if shoot_timer <= 0:
-            shoot_timer = shoot_delay
-            shoot()
-        else:
-            shoot_timer -= dt
-    else:
-        shoot_timer -= dt
-    
-    
-    if keys[pg.K_LSHIFT]:
-        if stamina > 0 and not is_min_stamina_reached:
-            player.speed = RUN_SPEED
-            stamina -= dt
-        elif stamina <= 0:
-            is_min_stamina_reached = True
-            player.speed = PLAYER_SPEED
-            if stamina < max_stamina:
-                stamina += dt
-        elif stamina >= max_stamina:
-            is_min_stamina_reached = False
-        else:
-            player.speed = PLAYER_SPEED
-            if stamina < max_stamina:
-                stamina += dt
-    else:
-        player.speed = PLAYER_SPEED
-        if stamina < max_stamina:
-            stamina += dt
-    
     camera_target_x, camera_target_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
     camera_x += (camera_target_x - camera_x) * CAMERA_SMOOTHING
     camera_y += (camera_target_y - camera_y) * CAMERA_SMOOTHING
@@ -356,6 +420,9 @@ while running:
     draw_objects()
     player.player_draw()
     buttons.draw(screen)
+    
+    fps_text = font20.render(str(round(clock.get_fps())), True, "#B0305C")
+    screen.blit(fps_text, (3, 3))
     
     pg.display.update()
 
