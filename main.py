@@ -134,10 +134,8 @@ class Object(pg.sprite.Sprite):
     
     
     def draw(self):
-        if (camera_x <= self.x <= camera_x + WIDTH and camera_y <= self.y <= camera_y + HEIGHT or
-            camera_x <= self.rect.right <= camera_x + WIDTH and camera_y <= self.y <= camera_y + HEIGHT or
-            camera_x <= self.x <= camera_x + WIDTH and camera_y <= self.rect.bottom <= camera_y + HEIGHT or
-            camera_x <= self.rect.right <= camera_x + WIDTH and camera_y <= self.rect.bottom <= camera_y + HEIGHT):
+        if (
+                camera_x <= self.x <= camera_x + WIDTH and camera_y <= self.y <= camera_y + HEIGHT or camera_x <= self.rect.right <= camera_x + WIDTH and camera_y <= self.y <= camera_y + HEIGHT or camera_x <= self.x <= camera_x + WIDTH and camera_y <= self.rect.bottom <= camera_y + HEIGHT or camera_x <= self.rect.right <= camera_x + WIDTH and camera_y <= self.rect.bottom <= camera_y + HEIGHT):
             screen.blit(self.image, (self.x - camera_x, self.y - camera_y))
 
 
@@ -161,8 +159,9 @@ class Bullet(Object):
         self.image = pg.transform.rotate(self.raw_image, rad_to_ang(self.angle))
         super().update()
         for obj in objects:
-            if obj.collision and self.rect.colliderect(obj.rect) and obj != self and type(obj) != Player:
+            if (obj.collision or type(obj) == Enemy) and self.rect.colliderect(obj.rect) and obj != self and type(obj) != Player:
                 self.collide(obj)
+                break
     
     
     def collide(self, obj):
@@ -174,6 +173,7 @@ class Bullet(Object):
             self.kill()
         except:
             pass
+
 
 class Player(Object):
     def __init__(self, x, y, image, walk_speed, run_speed, max_stamina):
@@ -352,14 +352,13 @@ class Enemy(Object):
                 pass
 
 
-
 for x in range(0, WORLD_SIZE[0], 680):
     for y in range(0, WORLD_SIZE[1], 680):
         Object(x, y, bg_img, False, collision=False)
 
 for x in range(0, WORLD_SIZE[0], 680):
     for y in range(0, WORLD_SIZE[1], 680):
-        Enemy(x, y, enemy_img, 100, 3)
+        Enemy(x, y, enemy_img, ENEMY_SPEED, 3)
 
 
 def draw_objects():
@@ -374,6 +373,11 @@ def update_objects():
 
 
 player = Player(0, 0, player_img, PLAYER_SPEED, RUN_SPEED, 5)
+Object(128, 0, wall_img, False)
+Object(128, 64, wall_img, False)
+Object(128, 128, wall_img, False)
+Object(0, 128, wall_img, False)
+Object(64, 128, wall_img, False)
 player.x = WORLD_SIZE[0] // 2 - player.rect.w // 2
 player.y = WORLD_SIZE[1] // 2 - player.rect.h // 2
 player.update_rect()
@@ -386,7 +390,7 @@ def exit_game():
     running = False
 
 
-Button(font40, (150, 50), (1770, 0), "Exit", "Black", "#B0305C", exit_game)
+Button(font40, (150, 50), (WIDTH - 150, 0), "Exit", "Black", "#B0305C", exit_game)
 
 camera_x, camera_y = (player.rect.centerx - WIDTH // 2, player.rect.centery - HEIGHT // 2)
 
